@@ -1,0 +1,405 @@
+---
+title: "A3_Tessmann_Meag"
+author: "Meag Tessmann"
+date: "2/10/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 1
+    toc_float: true
+  
+---
+
+# Setup & Import
+
+A. Load package and import data. Do NOT load strings as factors. Show the overall structure of the input data. Then, transform all non-numeric variables to factor variables, except Name. Afterwards, show the summary of the input data. 
+
+B. Use pairs.panels to show the distributions and correlations of all numeric variables (do not include non-numeric variables such as factor variables).
+
+C. Use the whole dataset except Name to build a linear regression model to estimate Global_Sales. Use the “summary” function to show the summary of the model. (Note: Here, we are using the whole dataset to train the model, instead of a partitioned training set.)
+
+D. Now, partition the dataset for a simple hold-out evaluation: 70% to a training set and 30% to a test set.
+
+E. Show the summary of i) the target variable and ii) all predictors in both the training and test sets, using the “summary” function.
+
+
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+
+############# 
+##### A #####
+#############
+
+
+# Load packages
+library(rmarkdown) # knitting
+library(rpart)
+library(RWeka)
+library(caret) # training models
+library(tidyverse) # data manipulation
+library(skimr) # data preview
+library(rminer)
+library(matrixStats)
+library("scales") # plotting monies
+library("knitr") # fancy tables
+library(kableExtra)
+library(psych) #pairs panelse
+
+# Import data
+sales <- read.csv('sales_filtered.csv', fileEncoding="latin1", stringsAsFactors = FALSE)
+
+skim(sales)
+#  There are 3 factor variables, 4 integer variables, and 1 numeric variable which looks right skewed with potentially an upper outlier or two.
+
+# change factor variables to factors
+sales <- sales %>% 
+  mutate(
+    Genre = factor(Genre),
+    Platform = factor(Platform),
+    Rating = factor(Rating),
+  )
+
+# plot sales to check for skewness and outliers - looks like it's has a really long tail
+ggplot(sales, aes(Global_Sales)) + 
+  geom_histogram()
+
+# confirm changes
+summary(sales)
+
+
+
+#############
+##### B #####
+#############
+
+
+
+# Take all numeric variables
+num_vars <- sales %>% 
+  select_if(is.numeric)
+
+# get correlation matrix
+cor(num_vars)
+
+# plot pair panels
+pairs.panels(num_vars)
+
+
+#############
+##### C #####
+#############
+
+# create full training set, leaving out name
+train_full <- sales %>% 
+  select(-Name)
+
+# train a linear model with full data set
+model_full_set <- lm(Global_Sales ~., data = train_full)
+# check model summaries
+model_full_set
+summary(model_full_set)
+
+
+#############
+##### D #####
+#############
+
+
+# create train, test partitions
+
+n_obs <- nrow(sales)
+
+set.seed(500)
+train_sample <- sample(n_obs, (n_obs*.7))
+train <- train_full[train_sample,]
+test <- train_full[-train_sample,]
+
+
+#############
+##### E #####
+#############
+
+
+
+# check target variable distro across test, train, full sets
+summary(train$Global_Sales)
+summary(test$Global_Sales)
+summary(train_full$Global_Sales)
+
+# check summaries
+summary(train)
+summary(test)
+summary(train_full)
+
+#compare target variable histograms in test, train, and full population
+compare_test <- test %>% 
+  select(Global_Sales) %>% 
+  mutate(set = "test")
+compare_train <- train %>% 
+  select(Global_Sales) %>% 
+  mutate(set = "train")
+all_sets <- sales %>% 
+  select(Global_Sales) %>% 
+  mutate(set = "full")
+all_sets = rbind(all_sets, compare_test, compare_train)
+
+ggplot(all_sets, aes(set, Global_Sales)) + 
+  geom_boxplot()
+
+
+```
+
+
+
+
+
+# LM, rpart, M5P Models
+
+A. Train the three models (i.e., lm, rpart and M5P) using the training dataset obtained from 1.D. Use the default settings of these functions throughout this assignment (i.e., do not specify any additional options when using the lm, rpart, or M5P functions). Show the summary of each of the models.
+
+B. For each of the models built in 2.A, generate the model’s evaluation metrics (i.e., MAE, RMSE, MAPE, RMSPE, RAE, RRSE, and R2) with the test and training sets, separately.
+
+
+
+``` {r lm-rpart-m5p-models}
+
+
+#############
+##### A #####
+#############
+
+# train lm model
+model_lm <- lm(Global_Sales~., data=train)
+
+#train rpart model
+model_rpart <- rpart(Global_Sales~., data=train)
+
+# train M5P model
+model_m5p <- M5P(Global_Sales~., data=train)
+
+#show summaries (not sure if you prefer the model or the summary() summarization)
+model_lm
+model_rpart
+model_m5p
+
+summary(model_lm)
+summary(model_rpart)
+summary(model_m5p)
+
+
+#############
+##### B #####
+#############
+
+
+# predict on train, test sets for each model
+predict_lm_train <- predict(model_lm, train)
+predict_lm_test <- predict(model_lm, test)
+
+predict_rpart_train <- predict(model_rpart, train)
+predict_rpart_test <- predict(model_rpart, test)
+
+predict_m5p_train <- predict(model_m5p, train)
+predict_m5p_test <- predict(model_m5p, test)
+
+# show stats for test/train for each model
+stats <- as.matrix(rbind(
+  mmetric(train$Global_Sales, predict_lm_train, metric=c("MAE","RMSE","MAPE","RMSPE","RAE", "RRSE", "COR", "R2")),
+  mmetric(test$Global_Sales, predict_lm_test, metric=c("MAE","RMSE","MAPE","RMSPE","RAE", "RRSE", "COR", "R2")),
+  mmetric(train$Global_Sales, predict_rpart_train, metric=c("MAE","RMSE","MAPE","RMSPE","RAE", "RRSE", "COR", "R2")),
+  mmetric(test$Global_Sales, predict_rpart_test, metric=c("MAE","RMSE","MAPE","RMSPE","RAE", "RRSE", "COR", "R2")),
+  mmetric(train$Global_Sales, predict_m5p_train, metric=c("MAE","RMSE","MAPE","RMSPE","RAE", "RRSE", "COR", "R2")),
+  mmetric(test$Global_Sales, predict_m5p_test, metric=c("MAE","RMSE","MAPE","RMSPE","RAE", "RRSE", "COR", "R2"))
+))
+rownames(stats) <- c("lm (train)", "lm (test)", "rpart (train)", "rpart (test)", "m5p (train)", "m5p (test)")
+
+# fancy taable
+kable(stats, digits=2) %>% 
+  kable_styling(bootstrap_options = c("striped", "hover"))
+
+
+```
+
+
+# Cross Validation
+
+A. Define a named function for cross validation (for numeric prediction) that generates a table of the evaluation metrics for each fold and that also generates the means and standard deviations of each metric. Refer to the Week 4 tutorial file for details.
+
+B. Use the function defined in 3.A to generate 5-fold cross validation results of lm, rpart and M5P models. 
+
+``` {r cross-validation}
+
+
+
+#############
+##### A #####
+#############
+
+
+
+# create cross validation function for k-fold validation
+
+cv_function <- function(df, target, nFolds, seedVal, prediction_method, metrics_list)
+{
+  # Create folds
+  set.seed(seedVal)
+  folds = createFolds(df[,target],nFolds) 
+  
+  # Perform cross validation
+  cv_results <- lapply(folds, function(x)
+  { 
+    test_target <- df[x,target]
+    test_input  <- df[x,-target]
+
+    train_target <- df[-x,target]
+    train_input <- df[-x,-target]
+
+    prediction_model <- prediction_method(train_target~.,train_input) 
+    pred <- predict(prediction_model,test_input)
+    return(mmetric(test_target,pred,metrics_list))
+  })
+  
+  # Generate means and sds and show cv results, means and sds using kable
+  cv_results_m <- as.matrix(as.data.frame(cv_results))
+  cv_mean<- as.matrix(rowMeans(cv_results_m))
+  cv_sd <- as.matrix(rowSds(cv_results_m))
+  colnames(cv_mean) <- "Mean"
+  colnames(cv_sd) <- "Sd"
+  cv_all <- cbind(cv_results_m, cv_mean, cv_sd)
+  kable(t(cv_all), digits=2) %>% 
+    kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+    row_spec(6:7, bold=T, background="#e0eaf6")
+}
+
+
+
+
+#############
+##### B #####
+#############
+
+# set parameters
+df <- train_full
+target <- which(colnames(train)=="Global_Sales")
+nFolds <- 5
+seedVal <- 500
+metrics_list <- c("MAE","RMSE","MAPE","RMSPE","RAE","RRSE","R2")
+
+cv_function(df, target, nFolds, seedVal, lm, metrics_list)
+cv_function(df, target, nFolds, seedVal, rpart, metrics_list)
+cv_function(df, target, nFolds, seedVal, M5P, metrics_list)
+
+
+
+
+```
+
+
+
+# Quadratic of User Count
+
+Improve the models by adding a quadratic term of User_Count: 
+
+A. Create and add the quadratic term of User_Count, e.g., User_Count_Squared, to the entire dataset (Do NOT use the partitioned dataset).
+
+B. Build an lm model using the whole dataset that includes User_Count_Squared to predict Global_Sales. (Do NOT split the data into training and test sets. Use the whole dataset.) Show the summary of this lm model.
+
+C. Use the cross validation function defined in 3.A to generate 5-fold cross validation results of the lm, rpart and M5P models with User_Count_Squared included.
+
+
+```{r quadratic-user_count}
+
+
+
+#############
+##### A #####
+#############
+
+
+# create new dataset with quadratic user count variable
+train_full_quad <- train_full %>% 
+  mutate(
+    User_Count_Squared = User_Count^2
+  )
+summary(train_full_quad)
+
+
+#############
+##### B #####
+#############
+
+model_lm_quad <- lm(Global_Sales~., data=train_full_quad)
+model_lm_quad
+summary(model_lm_quad)
+
+
+#############
+##### C #####
+#############
+
+# switch data frame to dataset containing quadratic term
+df <- train_full_quad
+
+# run 5-fold cross validation for 3 models: lm, rpart, and m5p 
+cv_function(df, target, nFolds, seedVal, lm, metrics_list)
+cv_function(df, target, nFolds, seedVal, rpart, metrics_list)
+cv_function(df, target, nFolds, seedVal, M5P, metrics_list)
+
+
+```
+
+
+# Log of User Count
+
+Improve the models with the log term of User_Count (Do not use the quadratic term of User_Count from Part 4):
+
+A. Create and add the natural log of User_Count, e.g., log_User_Count, to the original entire dataset. (Hint: Use log() function without specifying the base. Run ?log to find out more.)
+
+B. Build an lm model using the whole data set that includes log_User_Count and excludes User_Count. (Do NOT split the data into training and test sets. Use the whole dataset.) Show the summary of this lm model.
+
+C. Use the cross validation function defined in 3.A to generate 5-fold cross validation results of the lm, rpart and M5P models with log_User_Count included and User_Count excluded.
+
+```{r log-user_count}
+
+
+
+#############
+##### A #####
+#############
+
+
+# create new dataset with log of user count variable (and remove user_count)
+train_full_log <- train_full %>% 
+  mutate(
+    User_Count_Log = log(User_Count)
+  ) %>% 
+  select(-User_Count)
+summary(train_full_log)
+
+
+#############
+##### B #####
+#############
+
+# train and summarize lm model using log user count var
+model_lm_log <- lm(Global_Sales~., data=train_full_log)
+model_lm_log
+summary(model_lm_log)
+
+
+#############
+##### C #####
+#############
+
+# switch data frame var to use data set including log user count
+df <- train_full_log
+
+# run 5-fold cross validation for lm, rpart, and m5p models
+cv_function(df, target, nFolds, seedVal, lm, metrics_list)
+cv_function(df, target, nFolds, seedVal, rpart, metrics_list)
+cv_function(df, target, nFolds, seedVal, M5P, metrics_list)
+
+
+```
+

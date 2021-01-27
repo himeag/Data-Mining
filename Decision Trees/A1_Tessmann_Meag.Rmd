@@ -1,0 +1,398 @@
+---
+title: "A1_Tessmann_Meag"
+author: "Meag Tessmann"
+date: "1/13/2020"
+output: 
+  html_document:
+    toc: true
+    toc:float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Code Chunk 1: Install Libraries, import data, and inspect the code
+A. Load packages using library() and import data using read.csv(). Load factors as character strings first. Take a look at the overall structure of the input data.
+B. Transform all string variables that include categorical values to factor variables. After this transformation, show the overall structure and summary of the input data.
+
+``` {r libraries-data}
+
+# 
+library(rmarkdown)
+library(psych)
+library(caret) # model creation
+library(C50) # decision trees
+library(rminer)
+library(skimr) # data overview
+library(tidyverse) # data manipulation
+library(scales) #for plotting moneyies
+
+# read in data + preview structure
+churn <- read.csv('churn_balanced.csv', stringsAsFactors=FALSE)
+skim(churn)
+
+# change categorical levels to factors
+churn <- churn %>% 
+  mutate(
+    COLLEGE = factor(COLLEGE),
+    CONSIDERING_CHANGE_OF_PLAN = factor(CONSIDERING_CHANGE_OF_PLAN),
+    LEAVE = factor(LEAVE),
+    REPORTED_SATISFACTION = factor(REPORTED_SATISFACTION),
+    REPORTED_USAGE_LEVEL = factor(REPORTED_USAGE_LEVEL)
+  )
+  
+skim(churn)
+
+```
+
+# Code Chunk 2: EDA-Numeric
+INCOME,OVERAGE,andLEFTOVER. For each of these variables,
+A. Create a histogram and include a title of the histogram.
+B. Create a boxplot and include a title in the plot.
+C. Show deciles of the variable (i.e., quantiles using 0%, 10%, 20%, ..., 90%, 100%).
+
+``` {r eda-numeric}
+
+# Explore Income
+churn %>% 
+  ggplot(aes(INCOME)) + 
+  geom_histogram( binwidth = 2500, fill="steelblue", color="white") +
+  scale_x_continuous(label=dollar) + 
+  ggtitle("Distribution of Income")
+  
+
+churn %>% 
+  ggplot(aes(LEAVE, INCOME)) + 
+  geom_boxplot( color="steelblue") +
+  scale_y_continuous(label=dollar) + 
+  ggtitle("Leave ~ Income")
+
+# Income Quantiles
+quantile(churn$INCOME, seq(from = 0, to = 1, by = 0.10))
+
+
+# Explore Overage
+churn %>% 
+  ggplot(aes(OVERAGE)) + 
+  geom_histogram( binwidth=8, fill="steelblue", color="white") +
+  ggtitle("Distribution of Overage")
+  
+churn %>% 
+  ggplot(aes(LEAVE, OVERAGE)) + 
+  geom_boxplot( color="steelblue") +
+  ggtitle("Leave ~ Overage")
+
+# Overage Quantiles
+quantile(churn$OVERAGE, seq(from = 0, to = 1, by = 0.10))
+
+
+# Explore Leftover
+churn %>% 
+  ggplot(aes(LEFTOVER)) + 
+  geom_histogram(binwidth = 3, fill="steelblue", color="white") +
+  ggtitle("Distribution of Leftover")
+  
+churn %>% 
+  ggplot(aes(LEAVE, LEFTOVER)) + 
+  geom_boxplot( color="steelblue") +
+  ggtitle("Leave ~ Leftover")
+
+# Leftover Quantiles
+quantile(churn$LEFTOVER, seq(from = 0, to = 1, by = 0.10))
+
+```
+
+# Code Chunk 3: EDA - Factors
+A. For each of the factor variables in the dataset, and for each of this variable’s categorical values (e.g., “LEAVE” and “STAY” of LEAVE), show the count value and percentage value of instances that belong to that level.
+B. For each of the two factor variables LEAVE and REPORTED_SATISFACTION, show a bar plot of the number of instances (i.e. count) of each categorical value. The bars should be arranged in the descending order of instance count. Show a descriptive title in each plot.
+
+``` {r eda-factors}
+
+# College dist
+churn %>% 
+  ggplot(aes(COLLEGE)) + 
+  geom_bar(stat='count') + 
+  theme_minimal() + 
+  xlab("College") + 
+  ggtitle("College Level Distribution")
+
+# College as percentage
+prop_college <- as.data.frame(prop.table(table(churn$COLLEGE)))
+ggplot(prop_college, aes(Var1, Freq)) + geom_col() + 
+  theme_minimal() + 
+  xlab("College") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels=percent) + 
+  ggtitle("College Level Percentages")
+
+
+
+
+# Considering plan change dist
+churn %>% 
+  ggplot(aes(CONSIDERING_CHANGE_OF_PLAN)) + 
+  geom_bar(stat='count') + 
+  theme_minimal() + 
+  xlab("Considering Change of Plan") + 
+  ggtitle("Considering Change of Plan Distribution")
+
+# Considering plan change as percentage
+prop_plan_change <- as.data.frame(prop.table(table(churn$CONSIDERING_CHANGE_OF_PLAN)))
+ggplot(prop_plan_change, aes(Var1, Freq)) + geom_col() + 
+  theme_minimal() + 
+  xlab("Considering Change of Plan") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels=percent) + 
+  ggtitle("Considering Change of Plan Percentages")
+
+
+
+
+# LEAVE dist
+churn %>% 
+  ggplot(aes(LEAVE)) + 
+  geom_bar(stat='count') + 
+  theme_minimal() + 
+  xlab("Churn") + 
+  ggtitle("Churn Distribution")
+
+# LEAVE as percentage
+prop_leave <- as.data.frame(prop.table(table(churn$LEAVE)))
+ggplot(prop_leave, aes(Var1, Freq)) + geom_col() + 
+  theme_minimal() + 
+  xlab("Churn") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels=percent) + 
+  ggtitle("Churn Percentages")
+
+
+
+# REPORTED_SATISFACTION dist
+churn %>% 
+  ggplot(aes(REPORTED_SATISFACTION)) + 
+  geom_bar(stat='count') + 
+  theme_minimal() + 
+  xlab("Reported Satisfaction Level") + 
+  ggtitle("Reported Satisfaction Level Distribution")
+
+# REPORTED_SATISFACTION as percentage
+prop_satis <- as.data.frame(prop.table(table(churn$REPORTED_SATISFACTION)))
+ggplot(prop_satis, aes(Var1, Freq)) + geom_col() + 
+  theme_minimal() + 
+  xlab("Reported Satisfaction Level") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels=percent) + 
+  ggtitle("Reported Satisfaction Level Percentages")
+
+
+
+# REPORTED_USAGE_LEVEL dist
+churn %>% 
+  ggplot(aes(REPORTED_USAGE_LEVEL)) + 
+  geom_bar(stat='count') + 
+  theme_minimal() + 
+  xlab("Reported Usage Level") + 
+  ggtitle("Reported Usage Level Distribution")
+
+# REPORTED_USAGE_LEVEL as percentage
+prop_usage <- as.data.frame(prop.table(table(churn$REPORTED_USAGE_LEVEL)))
+ggplot(prop_usage, aes(Var1, Freq)) + geom_col() + 
+  theme_minimal() + 
+  xlab("Reported Usage Level") + 
+  ylab("Percentage") + 
+  scale_y_continuous(labels=percent) + 
+  ggtitle("Reported Usage Level Percentages")
+  
+```
+
+# Code Chunk 4: Correlations
+A. Use cor display correlations among all of the numeric variables in the data set
+B. Use pairs.panels to display histograms/scatter plots and correlations based on all of the numeric variables and the target variable in the data set
+
+``` {r correlations}
+# Take all numeric variables
+num_vars <- churn %>% 
+  select_if(is.numeric)
+
+# get correlation matrix
+cor(num_vars)
+
+# plot pair panels
+pairs.panels(num_vars)
+
+```
+
+
+# Code Chunk 5: Factors ~ Churn
+A. Show a boxplot of this numeric variable by the target variable (i.e., for “LEAVE” and “STAY” separately).
+B. Use the aggregate function with summary to aggregate this variable by the target variable. The output should be the six number statistics (i.e., min., 1st quartile, median, mean, 3rd quartile, and max.) of the variable (e.g., INCOME) aggregated by “LEAVE” and “STAY” respectively.
+
+
+``` {r factor-by-churn}
+
+
+# Explore Income
+churn %>% 
+  ggplot(aes(LEAVE, INCOME)) + 
+  geom_boxplot( color="steelblue") +
+  scale_y_continuous(label=dollar) + 
+  ggtitle("Leave ~ Income")
+
+aggregate(INCOME~LEAVE, summary, data=churn)
+
+
+# Explore Overage
+churn %>% 
+  ggplot(aes(LEAVE, OVERAGE)) + 
+  geom_boxplot( color="steelblue") +
+  ggtitle("Leave ~ Overage")
+
+aggregate(OVERAGE~LEAVE, summary, data=churn)
+
+
+# Explore Leftover
+churn %>% 
+  ggplot(aes(LEAVE, LEFTOVER)) + 
+  geom_boxplot( color="steelblue") +
+  ggtitle("Leave ~ Leftover")
+
+aggregate(LEFTOVER~LEAVE, summary, data=churn)
+
+
+```
+
+# Code Chunk 6: Data Prep
+A. Partition the imported data set for a simple hold-out evaluation: 70% for training and the other 30% for testing. Show the summary of training and test sets.
+B. Show the proportions of “LEAVE” and “STAY” of the target variable in the training set and in the test set, separately.
+
+```{r data-preparation}
+
+#get number of observations
+n_obs <- nrow(churn)
+
+#create test, training sets
+set.seed(123)
+train_sample <- sample(n_obs, (n_obs*.7))
+train <- churn[train_sample,]
+test <- churn[-train_sample,]
+
+#check test, training sets
+summary(train)
+summary(test)
+
+
+# check for target variable distribution
+prop.table(table(train$LEAVE))
+prop.table(table(test$LEAVE))
+
+
+```
+
+# Code Chuck 7: Decision Tree 1
+A. [5pt] Train a C5.0 model with the default setting to classify the target variable (i.e., LEAVE) using all other variables as predictors. Show this model to find out the size of the tree. Since the model is very complex now, do not show the summary of the model, and do not plot the tree at this point.
+B. [4pt] Using the predict() and mmetric() functions, generate and compare this model’s confusion matrices and other evaluation metrics in the test and training sets.
+
+``` {r decision-tree-1}
+
+# create model
+model_1 <- C5.0(LEAVE ~ ., train)
+
+model_1
+
+# get predictions for test, train set
+predict_1_test <- predict(model_1, test)
+predict_1_train <- predict(model_1, train)
+
+# confusion matrix for test, train set
+mmetric(test$LEAVE, predict_1_test, metric="CONF")
+mmetric(train$LEAVE, predict_1_train, metric="CONF")
+
+# stats for test, train set
+mmetric(test$LEAVE, predict_1_test, metric=c("ACC","TPR","PRECISION","F1"))
+mmetric(train$LEAVE, predict_1_train, metric=c("ACC","TPR","PRECISION","F1"))
+```
+
+
+# Code Chuck 8: Decision Tree 2
+A. Build a simplified, plottable version of Decision Tree 1 by adjusting the confidence factor (CF) of Decision Tree 1. Show this model and the summary of the model. Plot the tree since it is simpler. Try to adjust the CF value to come up with a tree that is simple enough to be plotted.
+B. Using the predict() and mmetric() functions, generate and compare this model’s confusion matrices and other evaluation metrics in the test and training sets.
+
+``` {r decision-tree-2}
+
+model_2 <- C5.0(LEAVE ~ ., train, , control = C5.0Control(CF = 0.06))
+
+model_2
+plot(model_2)
+summary(model_2)
+
+# get predictions for test, train set
+predict_2_test <- predict(model_2, test)
+predict_2_train <- predict(model_2, train)
+
+# confusion matrix for test, train set
+mmetric(test$LEAVE, predict_2_test, metric="CONF")
+mmetric(train$LEAVE, predict_2_train, metric="CONF")
+
+# stats for test, train set
+mmetric(test$LEAVE, predict_2_test, metric=c("ACC","TPR","PRECISION","F1"))
+mmetric(train$LEAVE, predict_2_train, metric=c("ACC","TPR","PRECISION","F1"))
+```
+
+
+# Code Chuck 9: Decision Tree 3
+A. Remove INCOME as a predictor for Decision Tree 3. Train a C5.0 model with the default setting to classify the target variable (i.e., LEAVE) using all other remaining variables as predictors. Show this model to find out the size of the tree.
+
+B. Using the predict() and mmetric() functions, generate and compare this model’s confusion matrices and other evaluation metrics in the test and train sets.
+
+``` {r decision-tree-3}
+train_noIncome <- train %>% select(-INCOME)
+model_3 <- C5.0(LEAVE ~ ., train_noIncome)
+
+model_3
+
+# get predictions for test, train set
+predict_3_test <- predict(model_3, test)
+predict_3_train <- predict(model_3, train)
+
+# confusion matrix for test, train set
+mmetric(test$LEAVE, predict_3_test, metric="CONF")
+mmetric(train$LEAVE, predict_3_train, metric="CONF")
+
+# stats for test, train set
+mmetric(test$LEAVE, predict_3_test, metric=c("ACC","TPR","PRECISION","F1"))
+mmetric(train$LEAVE, predict_3_train, metric=c("ACC","TPR","PRECISION","F1"))
+
+```
+
+# Code Chuck 10: Decision Tree 4
+A. Build a simplified, plottable version of Decision Tree 3 by adjusting the confidence factor (CF) of Decision Tree 3. Show this model and the summary of the model. Plot the tree.
+B. Using the predict() and mmetric() functions, generate and compare this model’s confusion matrices and other evaluation metrics in the test and train sets.
+
+``` {r decision-tree-4}
+
+# simple, plot
+# I had this origanially at .08 which resulted in ~18 leaves. Devin said to change it to .01 since the output had some weird zoom thing going on...
+
+model_4 <- C5.0(LEAVE ~ ., train_noIncome, control = C5.0Control(CF = 0.01))
+
+model_4
+plot(model_4)
+
+# get predictions for test, train set
+predict_4_test <- predict(model_4, test)
+predict_4_train <- predict(model_4, train)
+
+# confusion matrix for test, train set
+mmetric(test$LEAVE, predict_4_test, metric="CONF")
+mmetric(train$LEAVE, predict_4_train, metric="CONF")
+
+# stats for test, train set
+mmetric(test$LEAVE, predict_4_test, metric=c("ACC","TPR","PRECISION","F1"))
+mmetric(train$LEAVE, predict_4_train, metric=c("ACC","TPR","PRECISION","F1"))
+
+
+```
+
+

@@ -1,0 +1,277 @@
+---
+title: "A2_Tessmann_Meag"
+author: "Meag Tessmann"
+date: "1/27/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 1
+    toc_float: true
+---
+# Chunk 1: import
+### import libraries and data
+A. Load packages and import data. Now that you are familiar with the data set, feel free to load factors as factors in read.csv(). Show the overall structure and summary of the input data.
+
+B. Partition the data frame for simple hold-out evaluation: 70% for training and the other 30% for testing.
+
+C. Show the distributions (in fractions) of the target variable using prop.table() in the following three data sets: (i) entire data set, (ii) training set, and (iii) test set.
+
+
+```{r setup-import-prepare}
+knitr::opts_chunk$set(echo = TRUE)
+
+## PART A: install libraries and import data 
+
+library("rmarkdown") # knitting
+library("C50") # training models
+library("e1071") 
+library("caret") # training models
+library("rminer")
+library("matrixStats")
+library("tidyverse") # data manipulation
+library("knitr") # fancy tables
+library("skimr") # data preview
+library("scales") # plotting monies
+churn <- read.csv("churn2.csv", stringsAsFactors = TRUE)
+
+# preview data distributions and completeness
+skim(churn)
+
+## PART B: create training / test sets
+
+#get number of observaitons
+n_obs <- nrow(churn)
+
+# create test, train sets
+set.seed(123)
+train_sample <- sample(n_obs, (n_obs*.7))
+train <- churn[train_sample,]
+test <- churn[-train_sample,]
+
+# check test, training sets
+summary(train)
+summary(test)
+
+## PART C: check for target variable distribution
+
+prop.table(table(train$LEAVE)) # train leave - 19.48%
+prop.table(table(test$LEAVE)) # test leave - 19.64%
+prop.table(table(churn$LEAVE)) # churn leave - 19.53%
+
+
+```
+
+# Chunk 2: C5.0 models
+### Train and test a decision tree model
+A. Train a C5.0 model using the default setting. Show information about this model and the summary of the model. Do not plot the tree at this point because the tree might be too complex. Generate and compare this model’s confusion matrices and evaluation metrics in the test and training sets.
+
+
+B. Here, train and test another C5.0 model by selecting a CF level of your choice in order to reduce the complexity of the tree. (However, do not generate a one-node tree, i.e. a majority- rule tree.) Show the summary of the tree. Do not plot the tree. Generate and compare this model’s confusion matrices and evaluation metrics in the test and training sets.
+
+> *Observations: Part A*<br />
+> The training set accuracy is ~ 4% higher than the test set, indicating overfitting. This is most noticibly in a decreased true positive rate and precision rate on the Leave class. While the training set predicting ~70% of the churn cases as churn, the test set indicates performance would actually be closer to ~50%. I think the true positive rate and precision metrics have such drastic changes while only seeing minimal change in accuracy because there are a lot more stay trials than leave trials. <br /><br/>
+> *Observations: Part B*<br />
+> There accuracy is ~3% higher in the training set than the test set, indicating less, but still some overfitting.  This is most notable in classifying someone who stayed as leaving. Overall performance is increased slightly by change the CF level.<br />
+
+
+
+``` {r tree-models}
+
+## PART A: create default tree model
+model_1 <- C5.0(LEAVE ~ ., train)
+model_1
+summary(model_1)
+
+# get preditions for test, train sets
+predict_1_test <- predict(model_1, test)
+predict_1_train <- predict(model_1, train)
+
+# confusion matrix for test, train set
+mmetric(test$LEAVE, predict_1_test, metric = "CONF")
+mmetric(train$LEAVE, predict_1_train, metric = "CONF")
+
+# stats for test, train sets
+mmetric(test$LEAVE, predict_1_test, metric = c("ACC", "TPR", "PRECISION", "F1"))
+mmetric(train$LEAVE, predict_1_train, metric = c("ACC", "TPR", "PRECISION", "F1"))
+
+# The training set accuracy is ~ 4% higher than the test set, indicating overfitting. This is most noticibly in a decreased true positive rate and precision rate on the Leave class. While the training set predicting ~70% of the churn cases as churn, the test set indicates performance would actually be closer to ~50%. I think the true positive rate and precision metrics have such drastic changes while only seeing minimal change in accuracy because there are a lot more stay trials than leave trials.
+
+## PART B: create modified CF tree model
+model_2 <- C5.0(LEAVE ~ ., train, control = C5.0Control(CF = 0.0452))
+model_2
+summary(model_2)
+
+# get preditions for test, train sets
+predict_2_test <- predict(model_2, test)
+predict_2_train <- predict(model_2, train)
+
+# confusion matrix for test, train set
+mmetric(test$LEAVE, predict_2_test, metric = "CONF")
+mmetric(train$LEAVE, predict_2_train, metric = "CONF")
+
+# stats for test, train sets
+mmetric(test$LEAVE, predict_2_test, metric = c("ACC", "TPR", "PRECISION", "F1"))
+mmetric(train$LEAVE, predict_2_train, metric = c("ACC", "TPR", "PRECISION", "F1"))
+
+# There accuracy is ~3% higher in the training set than the test set, indicating less, but still some overfitting.  This is most notable in classifying someone who stayed as leaving. Overall performance is increased slightly by change the CF level.
+```
+
+# Chunk 3: naiveBayes models
+### Train and test a naïveBayes model
+
+A. Train a naiveBayes model. Show information about this model. Generate and compare this model’s confusion matrices and evaluation metrics in the test and training sets.
+
+B. Here, remove one predictor to improve the PRECISION of the class “LEAVE” of the target variable LEAVE from Part A. Train and test this new naiveBayes model. Generate and compare this model’s confusion matrices and evaluation metrics in the test and training sets. (Removing one predictor will clearly improve the precision of the class “LEAVE” for both test and training sets.)
+
+> *Observations*<br /><br />
+> Compared to the CF-altered tree model, the naivebayes model is only slightly less accurate. Both the true-positive and precision metrics for LEAVE class are lower in the naivebayes model. Given that it's more costly to miss a churn prediction, I would go with the modified tree model from earlier given just the simple train/test sets metrics seen so far. <br /><br />
+> *Observations: Part A*<br />
+> The model including all variables has test and train set metrics that are more similar to each other compared to the C5.0 models above. <br /><br /> 
+> *Observations: Part B*<br />
+> Overall accuracy has increased a bit by removing  OVER_15MINS_CALLS_PER_MONTH from the training set. We see a little more overfitting on this model compared to the naivebayes which included all the metrics. This may not be the most desirable, however, since the true positive rate on LEAVE class has dropped a lot - somethign that may not be desireable when marketing dollars would probably be spent on this predicted class. <br /><br />
+
+
+``` {r naiveBayes-model}
+
+# train default naivebayes model
+model_3 <- naiveBayes(LEAVE ~., train)
+model_3
+
+# check conditional probabilities
+set.seed(500)
+predict_3_test <- predict(model_3, test)
+predict_3_train <- predict(model_3, train)
+# mmetric(test$LEAVE, predict_3_test, metric="CONF")
+mmetric(test$LEAVE, predict_3_test, metric=c("ACC", "TPR", "PRECISION", "F1"))
+mmetric(train$LEAVE, predict_3_train, metric=c("ACC", "TPR", "PRECISION", "F1"))
+
+# train naivebayes model without'>15 min calls' variable
+set.seed(500)
+model_4 <- naiveBayes(LEAVE ~., subset(train, select = -OVER_15MINS_CALLS_PER_MONTH))
+
+# check conditional probabilities
+predict_4_test <- predict(model_4, test)
+predict_4_train <- predict(model_4, train)
+
+# mmetric(test$LEAVE, predict_4_test, metric="CONF")
+mmetric(test$LEAVE, predict_4_test, metric=c("ACC", "TPR", "PRECISION", "F1"))
+mmetric(train$LEAVE, predict_4_train, metric=c("ACC", "TPR", "PRECISION", "F1"))
+
+
+# Compared to the CF-altered tree model, the naivebayes model is only slightly less accurate. Both the true-positive and precision metrics for LEAVE class are lower in the naivebayes model. Given that it's more costly to miss a churn prediction, I would go with the modified tree model from earlier given just the simple train/test sets metrics seen so far.
+
+```
+
+
+# Chunk 4: CV Function
+### Create a cross validation function
+
+• This function takes several arguments: a data frame, the target variable, classification algorithm, seed value, the number of folds, and a set of classification metrics (without including a confusion matrix output).
+
+• It generates and displays the overall accuracy, precision, true positive rate and f-measure of each class of the target variable for each fold.
+
+• The function should also generate the mean and standard deviation of each performance metric for all folds.
+
+• Use kable() to show the performance metrics by fold and their means and standard deviations.
+
+
+``` {r cross-validation-function}
+
+
+# create cross validation function for k-fold validation
+cv_function <- function(df, target, nFolds, seedVal, classification, metrics_list)
+{
+  # set seed everytime for consistency
+  set.seed(seedVal)
+  #create folds
+  folds = createFolds(df[,target],nFolds) 
+  
+  #create test/train sets
+  cv_results <- lapply(folds, function(x)
+  { 
+    train <- df[-x,-target]
+    test  <- df[x,-target]
+    
+    train_target <- df[-x,target]
+    test_target <- df[x,target]
+    
+    # create model
+    classification_model <- classification(train,train_target) 
+    
+    # predict using model
+    pred<- predict(classification_model,test)
+    
+    # return the metrics for the model
+    return(mmetric(test_target,pred,c("ACC","PRECISION","TPR","F1")))
+    
+  })
+  
+  
+  cv_results_m <- as.matrix(as.data.frame(cv_results))
+  
+  # create summary stats
+  cv_mean<- as.matrix(rowMeans(cv_results_m))
+  
+  colnames(cv_mean) <- "Mean"
+  
+  cv_sd <- as.matrix(rowSds(cv_results_m))
+  colnames(cv_sd) <- "Sd"
+  cv_all <- cbind(cv_results_m, cv_mean, cv_sd)
+  
+  # put them in a fancy table
+  knitr::kable(cv_all,digits=2)
+}
+
+
+
+```
+
+
+# Chunk 5: Cross Validation
+### Generate and Compare cross validation
+
+Use “cv_function” to generate and compare 5-fold and 10-fold cross validation results of the C5.0 and naiveBayes models.
+
+> *Observations*<br /><br />
+> For both models, k=10 validation has a higher variance for metrics, though it appears to have overall a higher performace mean as well. Usually a higher k means less bias to overestimating the true error since there is more training data, which implies a set more closely resembling the population. <br /><br />
+> Here we see again that the C5.0 tree model has better accuracy. The 10-fold cross validation indicates the precision for predicting a customer would stay who actually stayed was about the same. However, the tree algorithm performed much better in predicting a churned client who actually churned. Similarily, of those that left, the naivebayes model was better able to predict that they left. This is important because a lot of times these models are used to determine who to spend marketing dollars on. If the true positive rate is below 50% for the leave group, that's a lot of people we should have been targeting. Niether of these models seem to do a stellar job at predicting a true churned customer. <br /><br />
+
+
+
+
+``` {r cross-validation}
+
+
+# set cv function parameters
+df <- churn
+target <- which(colnames(churn)=="LEAVE")
+nFolds <- 5
+seedVal <- 500
+assign("classification", naiveBayes)
+metrics_list <- c("ACC","PRECISION","TPR","F1")
+
+
+# We use the 'cv_function' defined above to run cross validation.
+cv_function(df, target, nFolds, seedVal, classification, metrics_list)
+
+
+# Try a different classification algorithm - tree algo
+assign("classification", C5.0)
+cv_function(df, target, nFolds, seedVal, classification, metrics_list)
+
+
+# Try a different number of folds with naivebayes
+nFolds <- 10
+assign("classification", naiveBayes)
+cv_function(df, target, nFolds, seedVal, classification, metrics_list)
+
+# and again with 10-fold, but with tree algorithm 
+assign("classification", C5.0)
+cv_function(df, target, nFolds, seedVal, classification, metrics_list)
+
+
+# For both models, k=10 validation has a higher variance for metrics, though it appears to have overall a higher performace mean as well. Usually a higher k means less bias to overestimating the true error since there is more training data, which implies a set more closely resembling the population. 
+
+# Here we see again that the C5.0 tree model has better accuracy. The 10-fold cross validation indicates the precision for predicting a customer would stay who actually stayed was about the same. However, the tree algorithm performed much better in predicting a churned client who actually churned. Similarily, of those that left, the naivebayes model was better able to predict that they left. This is important because a lot of times these models are used to determine who to spend marketing dollars on. If the true positive rate is below 50% for the leave group, that's a lot of people we should have been targeting. Niether of these models seem to do a stellar job at predicting a true churned customer. 
+
+```

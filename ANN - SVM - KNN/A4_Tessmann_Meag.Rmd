@@ -1,0 +1,521 @@
+---
+title: "A4_Tessmann_Meag"
+author: "Meag Tessmann"
+date: "2/24/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 1
+    toc_float: true
+
+---
+
+# Ch1: Setup
+
+A. Load packages and import data. Set stringsAsFactors = TRUE. Create a data frame including all variables.
+
+B. Partition the dataset for a simple hold-out evaluation: 70% for training and 30% for testing.
+
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+
+############# 
+##### A #####
+#############
+
+library(caret) # data partitioning
+library(RWeka) # model training
+library(kernlab) # svm training
+library(rminer) # model training
+library(matrixStats) # metrics + stats
+library(skimr) # data preview
+library(knitr) # fancy tables
+library(tidyverse) # data manipulation
+library(kableExtra) # fancy tables
+
+# load data with factors, preview data
+churn <- read.csv('churn2.csv', stringsAsFactors = TRUE)
+skim(churn)
+
+
+############# 
+##### B #####
+#############
+
+# Create test/train partitions with 70% training
+set.seed(500)
+inTrain <- createDataPartition(y=churn$LEAVE, p=0.70, list=FALSE)
+
+# Create sets, using partitioning index from ln 48
+train <- churn[inTrain, ]
+test <- churn[-inTrain, ]
+
+# Check target variable distribution
+splits_target <- as.matrix(rbind(
+  prop.table(table(train$LEAVE)), 
+  prop.table(table(test$LEAVE)), 
+  prop.table(table(churn$LEAVE))
+))
+
+splits_target <- as.data.frame(splits_target)
+splits_target$Set <- c("Train Set", "Test Set", "Full Set")
+
+splits_target %>% 
+  gather(set, Percent, LEAVE:STAY) %>% 
+  ggplot(aes(x=Set, y=Percent, fill=forcats::fct_rev(set))) +
+  geom_bar(stat="identity") +
+  scale_fill_brewer() +
+  theme_minimal() + 
+  labs(title = "Variable Split Across Sets", x = "Set", y = "Percent", fill = "Variable")
+
+```
+
+# Ch2: Default Neural Net 
+
+Build and evaluate a neural network (MLP) model using a simple hold-out evaluation. Use the same classification performance metrics as in Assignment 2.
+
+A. Build an MLP model using the training set with MultilayerPerceptron()’s default setting.
+
+B. Generate the model’s evaluation metrics using the training and test sets, separately. 
+
+> *Observations*<br /><br />
+> Seems to be overfitting - precision drops from 62 to 48 (training to test) - over half of the the test set's positive predictions are wrongly classified. It's ability to correctly classify LEAVE is slightly concerning - true positive rates in the 20s and 30s seem low. 
+
+``` {r neural-net-model}
+
+
+############# 
+##### A #####
+#############
+
+metrics_list <- c("ACC", "TPR", "PRECISION", "F1")
+
+# create shorthand for superlong name
+MLP <- make_Weka_classifier("weka/classifiers/functions/MultilayerPerceptron")
+
+
+# MLP's default parameter values of MLP,L=0.3,M=0.2, N=500,H='a'
+# L: learning rate with default=0.3
+# M: momemtum with default=0.2
+# N: number of epochs with default=500
+# H: number of nodes in each layer (numbers separated by commas)
+  # The number of hidden nodes in each layer is one of the following:
+  # an integer, or the letter 'a' = (attribs + classes) / 2, 
+  # 'i' = attribs, 'o' = classes, 't' = attribs .+ classes)
+  # Default = 'a'.
+
+# start with default values
+l <- 0.3
+m <- 0.2
+n <- 500
+h <- 'a'
+
+# train model with defaults, view summaries
+model_mlp1 <- MLP(LEAVE ~ . , data = train, control= Weka_control(L=l, M=m, N=n, H=h))
+model_mlp1
+summary(model_mlp1)
+
+
+############# 
+##### B #####
+#############
+
+# predict on test and train sets
+predict_mlp1_test <- predict(model_mlp1, test)
+predict_mlp1_train <- predict(model_mlp1, train)
+
+# create matrix to make pretty table of metrics for each set
+stats_mpl1 <- as.matrix(rbind(
+  mmetric(train$LEAVE, predict_mlp1_train, metric=metrics_list),
+  mmetric(test$LEAVE, predict_mlp1_test, metric=metrics_list)
+))
+rownames(stats_mpl1) <- c("Train Set", "Test Set")
+
+
+# make pretty table f
+knitr::kable(stats_mpl1, digits=2) %>% kable_styling(bootstrap_options = c("hover"))
+
+# Seems to be overfitting - precision drops from 62 to 48 (training to test) - over half of the the test set's positive predictions are wrongly classified. It's ability to correctly classify LEAVE is slightly concerning - true positive rates in the 20s and 30s seem low. 
+
+# checking frquency of target variable - it's 19.5%
+NROW(which(churn$LEAVE=="LEAVE"))/NROW(churn)
+  
+
+
+```
+
+
+# Ch3: Support Vector Machine 
+
+Build and evaluate SVM (ksvm) models using a simple hold-out evaluation. Use the same classification performance metrics as in Assignment 2.
+
+A. Build a ksvm model using the training set with ksvm()’s default setting. Generate the model’s evaluation metrics using the training and test sets, separately.
+
+B. Build a ksvm model using the training set with kernel = “polydot”. Use C=10 for the cost. Generate the model’s evaluation metrics using the training and test sets, separately.
+
+> *Observations*<br /><br />
+> *Default Model*: This model is terrible at classifying LEAVE and seems to be overfitting worse than the previous model. The true positive rate for LEAVE dropped significantly compared to the last model. This time precision drops from 74 to 48. It did improve in correctly classifying STAY, though.<br />
+> *Polydot with Cost 10 Model*: This seems weird, but it's classifying everything as STAY? This is basically a majority class model. I'm guessing this is generalizing too much. 
+
+``` {r svm-model}
+
+
+############# 
+##### A #####
+#############
+
+# train default svm model, view summaries
+model_svm1 <- ksvm(LEAVE ~., data = train)
+model_svm1
+summary(model_svm1)
+
+# predict on test/train set
+predict_svm1_test <- predict(model_svm1, test)
+predict_svm1_train <- predict(model_svm1, train)
+
+# create matrix and put in pretty table
+stats_svm1 <- as.matrix(rbind(
+  mmetric(train$LEAVE, predict_svm1_train, metric=metrics_list),
+  mmetric(test$LEAVE, predict_svm1_test, metric=metrics_list)
+))
+rownames(stats_svm1) <- c("Train Set", "Test Set")
+
+knitr::kable(stats_svm1, digits=2) %>% kable_styling(bootstrap_options = c("hover"))
+
+# This model is terrible at classifying LEAVE and seems to be overfitting worse than the previous model. The true positive rate for LEAVE dropped significantly compared to the last model. This time precision drops from 74 to 48. It did improve in correctly classifying STAY, though. 
+
+
+############# 
+##### B #####
+#############
+
+
+# train svm model using polynomial kernal and cost set to 10, view summaries
+model_svm_poly <- ksvm(LEAVE ~., data = train, kernel = 'polydot', C=10)
+model_svm_poly
+summary(model_svm_poly)
+
+# predict on test/train set
+predict_svm_poly_test <- predict(model_svm_poly, test)
+predict_svm_poly_train <- predict(model_svm_poly, train)
+
+# create matrix and put in pretty table
+stats_svm_poly <- as.matrix(rbind(
+  mmetric(train$LEAVE, predict_svm_poly_train, metric=metrics_list),
+  mmetric(test$LEAVE, predict_svm_poly_test, metric=metrics_list)
+))
+rownames(stats_svm_poly) <- c("Train Set", "Test Set")
+
+knitr::kable(stats_svm_poly, digits=2) %>% kable_styling(bootstrap_options = c("hover"))
+
+# This seems weird, but it's classifying everything as STAY? 
+
+# Confirming with confusion matrix
+mmetric(test$LEAVE, predict_svm_poly_test, metric="CONF")
+
+
+
+```
+
+# Ch4: K-Nearest Neighbors Models
+
+Build and evaluate knn (IBk) models using a simple hold-out evaluation. Use the same classification performance metrics as in Assignment 2.
+
+A. Build an IBk model using the training set with IBk()’s default setting. Generate the model’s evaluation metrics using the training and test sets, separately.
+
+B. Build an IBk model using the training set with K=30, while keeping all other parameters to the default setting. Generate the model’s evaluation metrics using the training and test sets, separately.
+
+C. Build an IBk model using the training set with K=30, a weighted voting approach (e.g. I=TRUE), and automatically selecting the optimal number of neighbors (i.e., X=TRUE). Generate the model’s evaluation metrics using the training and test sets, separately.
+
+> *Observations*<br /><br />
+> *Default Model*: This is waaaaay overfitting - 100% accuracy?!? I'm guessing because the default model uses k=1, and when we increase k, we'll get a more generalizabel model.<br/>
+> *k=30 Model*: This model seems to be performing similar to the svm - correctly classifying STAY quite frequently, but doing a horrible job correctly classifying LEAVE. <br />
+> *k=30, i,x=T Model*: Again, we see 100% metrics across the board for training set - indicating overfitting, which is surprising given a higher k. I suppose the weighting is counter-acting the high k in terms of overfitting. True positive rate for LEAVE is slightly increased to 3.79 from previous models, but this still seems unacceptably low for any applications I can think of.
+
+``` {r knn-model}
+
+
+############# 
+##### A #####
+#############
+
+# train defalut knn model, view summaries
+model_knn1 <- IBk(LEAVE ~ ., data = train)
+model_knn1
+summary(model_knn1)
+
+# predict on test and training sets
+predict_knn1_test <- predict(model_knn1, test)
+predict_knn1_train <- predict(model_knn1, train)
+
+# create matrix of stats, put into pretty table
+stats_knn1 <- as.matrix(rbind(
+  mmetric(train$LEAVE, predict_knn1_train, metric=metrics_list),
+  mmetric(test$LEAVE, predict_knn1_test, metric=metrics_list)
+))
+rownames(stats_knn1) <- c("Train Set", "Test Set")
+
+knitr::kable(stats_knn1, digits=2) %>% kable_styling(bootstrap_options = c("hover"))
+
+# This is waaaaay overfitting - 100% accuracy?!? I'm guessing because the default model uses k=1, and when we increase k, we'll get a more generalizabel model. 
+
+
+############# 
+##### B #####
+#############
+
+# change k=30, train new model, view summaries
+model_knn_30 <- IBk(LEAVE ~ ., data = train, control = Weka_control(K=30))
+model_knn_30
+summary(model_knn_30)
+
+# predict on test and train sets
+predict_knn_30_test <- predict(model_knn_30, test)
+predict_knn_30_train <- predict(model_knn_30, train)
+
+# put stats into matrix, produce pretty table
+stats_knn_30 <- as.matrix(rbind(
+  mmetric(train$LEAVE, predict_knn_30_train, metric=metrics_list),
+  mmetric(test$LEAVE, predict_knn_30_test, metric=metrics_list)
+))
+rownames(stats_knn_30) <- c("Train Set", "Test Set")
+
+knitr::kable(stats_knn_30, digits=2) %>% kable_styling(bootstrap_options = c("hover"))
+
+# This model seems to be performing similar to the svm - correctly classifying STAY quite frequently, but doing a horrible job correctly classifying LEAVE.
+
+############# 
+##### C #####
+#############
+
+# train knn model with max k = 30, weighted voting, and auto-selecting the optimal k
+# Found k=21 to be highest performing 
+model_knn_30_IX <- IBk(LEAVE ~ ., data = train, control = Weka_control(K=30, X=TRUE, I=TRUE))
+model_knn_30_IX
+summary(model_knn_30_IX)
+
+# predict on test, train set
+predict_knn_30_IX_test <- predict(model_knn_30_IX, test)
+predict_knn_30_IX_train <- predict(model_knn_30_IX, train)
+
+# create matrix of stats, put into pretty table
+stats_knn_30_IX <- as.matrix(rbind(
+  mmetric(train$LEAVE, predict_knn_30_IX_train, metric=metrics_list),
+  mmetric(test$LEAVE, predict_knn_30_IX_test, metric=metrics_list)
+))
+rownames(stats_knn_30_IX) <- c("Train Set", "Test Set")
+
+knitr::kable(stats_knn_30_IX, digits=2) %>% kable_styling(bootstrap_options = c("hover"))
+
+# Again, we see 100% metrics across the board for training set - indicating overfitting, which is surprising given a higher k. I suppose the weighting is counter-acting the high k in terms of overfitting. True positive rate for LEAVE is slightly increased to 3.79 from previous models, but this still seems unacceptably low for any applications I can think of.
+
+```
+
+# Ch5: X-Validation Functions
+
+Defining three cross validation functions
+
+A. Define a named cross validation function (e.g., cv_function) for each model (MLP, ksvm, and IBk) with the following parameters: df, target, nFolds, seedVal, method, metrics_list and some select hyper-parameters of MLP, ksvm and IBk. This will result in three cross validation functions in total. Feel free to reuse the code from our R tutorial files.
+
+B. Inside each cross validation function, make sure that you generate a table of fold-by-fold performance metrics, and the means and standard deviations of those metrics. Again, feel free to reuse the code in our R tutorial files.
+
+``` {r cross-validation-functions}
+
+
+# I understand the directions to say develop 3 functions, but to pass a method parameter to each. If each method has it's separate function, why do we need to pass a method parameter?
+
+############# 
+#### MLP ####
+#############
+
+cv_function_MLP <- function(df, target, nFolds, seedVal, metrics_list, l, m, n, h)
+{
+# create folds using the assigned values
+set.seed(seedVal)
+folds = createFolds(df[,target],nFolds)
+
+# The lapply loop
+cv_results <- lapply(folds, function(x)
+{ 
+# data preparation:
+  test_target <- df[x,target]
+  test_input <- df[x,-target]
+  
+  train_target <- df[-x,target]
+  train_input <- df[-x,-target]
+  pred_model <- MLP(train_target ~ .,data = train_input,control = Weka_control(L=l,M=m, N=n,H=h))  
+  pred <- predict(pred_model, test_input)
+  return(mmetric(test_target,pred,metrics_list))
+})
+
+cv_results_m <- as.matrix(as.data.frame(cv_results))
+cv_mean<- as.matrix(rowMeans(cv_results_m))
+cv_sd <- as.matrix(rowSds(cv_results_m))
+colnames(cv_mean) <- "Mean"
+colnames(cv_sd) <- "Sd"
+cv_all <- cbind(cv_results_m, cv_mean, cv_sd)
+# kable(t(cbind(cv_mean,cv_sd)),digits=2)
+knitr::kable(t(cv_all), digits=2) %>% 
+    kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+    row_spec((nFolds+1):(nFolds+2), bold=T, background="#e7f6f4")
+
+}
+
+
+
+############# 
+#### SVM ####
+#############
+
+cv_function_ksvm <- function(df,target,nFolds,seedVal,metrics_list,kern,c)
+{
+# create folds using the assigned values
+set.seed(seedVal)
+folds = createFolds(df[,target],nFolds)
+
+# The lapply loop
+cv_results <- lapply(folds, function(x)
+{ 
+# data preparation:
+  test_target <- df[x,target]
+  test_input <- df[x,-target]
+  
+  train_target <- df[-x,target]
+  train_input <- df[-x,-target]
+   pred_model <- ksvm(train_target ~ .,data = train_input,kernel=kern, C=c)  
+  pred <- predict(pred_model, test_input)
+  return(mmetric(test_target,pred,metrics_list))
+})
+
+cv_results_m <- as.matrix(as.data.frame(cv_results))
+cv_mean<- as.matrix(rowMeans(cv_results_m))
+cv_sd <- as.matrix(rowSds(cv_results_m))
+colnames(cv_mean) <- "Mean"
+colnames(cv_sd) <- "Sd"
+cv_all <- cbind(cv_results_m, cv_mean, cv_sd)
+knitr::kable(t(cv_all), digits=2) %>% 
+    kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+    row_spec((nFolds+1):(nFolds+2), bold=T, background="#e7f6f4")
+
+}
+
+############# 
+#### kNN ####
+#############
+
+# Crossvalidation function
+# k: number of neighbors
+# i: whether to use inverse distance as weights
+# autok (or x): whether to find the optimal number of neighbors between 1 and k
+cv_IBk_cl <- function(df, target, nFolds, seedVal, metrics_list, k, i, autok)
+{
+# create folds using the assigned values
+set.seed(seedVal)
+folds = createFolds(df[,target],nFolds)
+
+# The lapply loop
+cv_results <- lapply(folds, function(x)
+{ 
+# data preparation:
+  test_target <- df[x,target]
+  test_input <- df[x,-target]
+  
+  train_target <- df[-x,target]
+  train_input <- df[-x,-target]
+  pred_model <- IBk(train_target ~ .,data = train_input,control = Weka_control(K=k,I=i,X=autok))  
+  pred <- predict(pred_model, test_input)
+  return(mmetric(test_target,pred,metrics_list))
+})
+
+cv_results_m <- as.matrix(as.data.frame(cv_results))
+cv_mean<- as.matrix(rowMeans(cv_results_m))
+cv_sd <- as.matrix(rowSds(cv_results_m))
+colnames(cv_mean) <- "Mean"
+colnames(cv_sd) <- "Sd"
+# kable(t(cbind(cv_results_m,cv_mean,cv_sd)),digits=3)
+knitr::kable(t(cbind(cv_results_m,cv_mean,cv_sd)), digits=3) %>% 
+    kable_styling(bootstrap_options = c("striped", "hover")) %>% 
+    row_spec((nFolds+1):(nFolds+2), bold=T, background="#e7f6f4")
+
+}
+
+
+
+
+
+```
+
+
+# Ch6: Cross Validation
+
+Use the cross validation function defined in Code Chunk 5 for a 3-fold crossvalidation of each model.
+
+A. Perform a 3-fold cross validation of the MLP model with the default setting (i.e., the model from Part 2.A).
+
+B. Perform a 3-fold cross validation of the ksvm model with the default setting (i.e., the model from Part 3.A.).
+
+C. Perform a 3-fold cross validation of the IBk model with K=30, while keeping all other parameters to the default setting (i.e., the model from Part 4.B.).
+
+> *Observations*<br /><br />
+> For MPL model, I switched the training set to 'train' from earlier and got similar stats to above on 2 folds and the TPR1=0 on one fold. I wrote to Cho, who replied this is normal and expected. Is it common to have this type of model do majority class prediction?<br />
+> When we compare to assignment 2 models, both the NaiveBayes and C5.0 classification models had similar accuracy, but did a much better job at classifying the target variable on 5-fold cv:<br />
+> accuracy: 79.09 | 80.43 (sd: .68 | .68) <br />
+> TPR1: 25.17 | 21.60 (sd: 2.44 | 3.07) <br />
+> TPR2: 92.18 | 94.71 (sd: 0.58 | 1.15) <br />
+> Prec1: 43.83 | 50.09 (sd: 3.18 | 3.97) <br />
+> Prec2: 83.54 | 83.27 (sd: 0.45 | 0.45) <br /><br />
+> In practice, I would expect it's more important to predict leave than stay. This would lead me to use NaiveBayes for future  prediction. 
+
+
+``` {r cross-validate}
+
+# cv_function_MLP(df, target, nFolds, seedVal, metrics_list, l, m, n, h)
+# cv_function_ksvm(df,target,nFolds,seedVal,metrics_list,kern,c)
+# cv_IBk_cl(df, target, nFolds, seedVal, metrics_list, k, i, autok)
+
+df <- churn
+target <- which(colnames(churn)=="LEAVE")
+seedVal <- 500
+nFolds = 3
+metrics_list <- c("ACC", "TPR", "PRECISION", "F1")
+
+
+############# 
+##### A #####
+#############
+
+
+# default values for mlp
+l = .3
+m = .2
+n = 500
+h = 1
+
+cv_function_MLP(df, target, nFolds, seedVal, metrics_list, l, m, n, h)
+
+# I switched the training set to 'train' from earlier and got similar stats to above on 2 folds and the TPR1=0 on one fold. I wrote to Cho, who replied this is normal and expected. Is it common to have this type of model do majority class prediction?
+
+############# 
+##### B #####
+#############
+
+# I'm pretty sure this is the default kernal based on the object parameters for model_svm1. I couldn't find anywhere what the default kernal is, including the kernlab documentation.
+
+kern = "rbfdot"
+c = 1
+  
+cv_function_ksvm(df,target,nFolds,seedVal,metrics_list,kern,c)
+
+############# 
+##### C #####
+#############
+
+# default values except k=30 
+k = 30
+i = FALSE
+autok = FALSE
+
+cv_IBk_cl(df, target, nFolds, seedVal, metrics_list, k, i, autok)
+
+```

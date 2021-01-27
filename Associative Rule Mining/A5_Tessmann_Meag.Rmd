@@ -1,0 +1,218 @@
+---
+title: "A5_Tessmann_Meag"
+author: "Meag Tessmann"
+date: "3/9/2020"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 1
+    toc_float: true
+
+---
+
+# Data Source
+
+1. Social media data: snsbinary.csv (a slightly different file from Week 8 tutorial) 
+
+This dataset contains a random sample of 30,000 US high school students who had profiles on a well- known social networking service in 2006 (data source: Machine Learning with R by Lantz). The dataset has information about whether each teen used a particular word in his/her page among 36 preselected words, showing the teen’s interest in a particular area. The words include football, sexy, kissed, bible, shopping, death, drugs, etc. This could show the teen’s interest in five broad categories: extracurricular activities, fashion, religion, romance, and antisocial behavior. 
+
+Note that this dataset is slightly different from the Week 8 tutorial, in that this dataset also has information about each teen’s graduation year, gender, age, and the number of friends on the social networking service.
+
+2. Walmart and Kaggle: Walmart_basket.csv
+
+Walmart held its 3rd Kaggle “recruiting” competition (https://www.kaggle.com/c/walmart-recruiting-trip- type-classification) in Fall 2015 to attract data scientists who are interested in getting a job at Walmart.
+
+Our data file, Walmart_basket.csv, was derived from the original Kaggle data for market basket analysis and is in a “long format.” The variable “VisitNumber” is the transaction id and the variable “DepartmentDescription” provides high-level description of the items purchased.
+
+
+# K-mean Clustering
+K-means clustering (use snsbinary.csv)
+
+A. Load packages and import snsbinary.csv using the “read.csv()” function with “stringsAsFactors = TRUE”. Assign the data to a data frame called “teensbinary”. Show the structure of the data.
+
+B. Change the variable “gradyear” to a factor variable and show the summary of the data.
+
+C. Run the following code to clean the dataset and remove outliers or missing datapoints.
+
+D. Run SimpleKMeans to create 5 clusters using the Euclidean distance. Show the model including the standard deviations of each cluster.
+
+E. Run SimpleKMeans to create 5 clusters using the Euclidean distance and Kmeans++. Show the model including the standard deviations of each cluster.
+
+
+```{r k-means}
+knitr::opts_chunk$set(echo = TRUE)
+
+
+############# 
+##### A #####
+#############
+
+library(RWeka)
+library(arules)
+library(skimr)
+library(knitr)
+library(tidyverse)
+
+
+teensbinary <- read.csv('snsbinary.csv', stringsAsFactors = TRUE)
+skim(teensbinary)
+
+
+############# 
+##### B #####
+#############
+
+teensbinary <- teensbinary %>% 
+  mutate(gradyear=factor(gradyear))
+
+summary(teensbinary)
+
+
+############# 
+##### C #####
+#############
+
+teensbinary$age <- ifelse(teensbinary$age >= 13 & teensbinary$age < 20, teensbinary$age, NA) 
+teens_cleaned <- subset(teensbinary,!(is.na(teensbinary["gender"]) | is.na(teensbinary["age"]))) 
+teens_cleaned <- teens_cleaned[which(teens_cleaned$friends <= 400),]
+
+
+############# 
+##### D #####
+#############
+
+teen_default <- SimpleKMeans(teens_cleaned, Weka_control(N=5, V=TRUE))
+teen_default
+
+
+############# 
+##### E #####
+#############
+
+teen_k_plus <- SimpleKMeans(teens_cleaned, Weka_control(N=5, V=TRUE, init=1))
+teen_k_plus
+
+
+
+```
+
+# Data Exploration
+
+Data exploration for market basket analysis (use Walmart_basket.csv)
+
+A. Load packages and import Walmart_basket.csv using the following code, where we use the “single” format and save the dataset in a sparse matrix called Walmart_trans. Walmart_trans <- read.transactions("Walmart_basket.csv ", format="single", sep = ",", cols=c(1,2))
+
+B. Inspect the items in the first 15 transactions using the “inspect” function.
+
+C. Use the “itemFrequency” function to show the frequencies of the first 15 items (e.g., using Walmart_trans[ ,1:15])
+
+D. Use the “image” function to visualize the first 50 transactions.
+
+E. Use the “itemFrequencyPlot” function to plot the most frequent 15 items in descending order of frequency.
+
+``` {r data-exploration}
+
+
+############# 
+##### A #####
+#############
+
+Walmart_trans <- read.transactions('Walmart_basket.csv', format='single', sep=',', cols=c(1,2))
+
+
+############# 
+##### B #####
+#############
+
+inspect(Walmart_trans[1:15])
+
+############# 
+##### C #####
+#############
+
+itemFrequency(Walmart_trans[,1:15])
+
+############# 
+##### D #####
+#############
+
+image(Walmart_trans[1:50])
+
+############# 
+##### E #####
+#############
+
+itemFrequencyPlot(Walmart_trans, topN=15)
+```
+
+# Assoc-Rule Mining
+
+Association rule mining (use Walmart_basket.csv) 
+
+A. Do the following steps.
+i. Use the “apriori” function to generate between 50 and 100 association rules from the input data (i.e., Walmart_trans). Set your own minimum support and confidence threshold levels to do so.
+ii. Show the model to check the number of association rules (it should be between 50 and 100)
+iii. Show the entire rules in descending order of their lift values using the “inspect” function.
+iv. Create a new variable containing a subset of rules that have “DAIRY” on the right-hand side. Show this subset of rules in descending order of their lift values using the “inspect” function.
+
+B. Do the following steps.
+i. Use the “apriori” function to generate between 100 and 200 association rules from the input data (i.e., Walmart_trans). Set your own minimum support and confidence threshold levels to do so.
+ii. Show the model to check the number of association rules (it should be between 100 and 200)
+iii. Show the entire rules in descending order of their confidence values using the “inspect” function.
+iv. Create a new variable containing a subset of rules that have “PRODUCE” on the left-hand side. Show this subset of rules in descending order of their confidence values using the “inspect” function.
+
+
+``` {r assoc-rule-mining}
+
+
+############# 
+### A - i ###
+#############
+
+wal_64 <- apriori(Walmart_trans, parameter = list(support = 0.05, confidence = 0.25))
+
+############# 
+### A - ii ##
+#############
+
+wal_64
+
+############# 
+## A - iii ##
+#############
+
+inspect(sort(wal_64, by = 'lift'))
+
+############# 
+### A - iv ##
+#############
+
+dairy_rules <- subset(wal_64, rhs %in% "DAIRY")
+inspect(sort(dairy_rules, by='lift'))
+
+############# 
+### B - i ###
+#############
+
+wal_172 <- apriori(Walmart_trans, parameter = list(support = 0.035, confidence = 0.25))
+
+############# 
+### B - ii ##
+#############
+
+wal_172
+ 
+############# 
+## B - iii ##
+#############
+
+inspect(sort(wal_172, by='confidence'))
+
+############# 
+### B - iv ##
+#############
+
+produce_rules <- subset(wal_172, lhs %in% "PRODUCE")
+inspect(sort(produce_rules, by='confidence'))
+
+```
